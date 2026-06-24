@@ -18,8 +18,8 @@ EsconPWMMotor left_motor(left_esc_dir, left_esc_enable, left_esc_pwm, &escon_con
 EsconPWMMotor right_motor(right_esc_dir, right_esc_enable, right_esc_pwm, &escon_config, &pwm_config);
 
 OpenCRDynamixelBridge opencr_brigde(&Serial1, 1000000);
-OpenCRDynamixelMotor steering_left(0, 7000.0f, 140000.0f, &opencr_brigde);
-OpenCRDynamixelMotor steering_right(1, 7000.0f, 140000.0f, &opencr_brigde);
+OpenCRDynamixelMotor steering_left(0, 5500.0f, 70000.0f, &opencr_brigde);
+OpenCRDynamixelMotor steering_right(1, 5500.0f, 70000.0f, &opencr_brigde);
 
 bool armed = true;
 float control_axis_1;
@@ -34,18 +34,15 @@ void setup() {
     Serial.begin(115200);
     pwm_config.set_resolution(12);
     
-    left_motor.init();
-    left_motor.set_enable(true);
-
-    right_motor.init();
-    right_motor.set_enable(true);
-
     opencr_brigde.init();
     steering_left.init();
     steering_right.init();
 
-    steering_left.set_position(0);
-    steering_right.set_position(M_PI);
+    left_motor.init();
+    right_motor.init();
+    
+    left_motor.set_enable(true);
+    right_motor.set_enable(true);
     opencr_brigde.send_arm(true);
 }
 
