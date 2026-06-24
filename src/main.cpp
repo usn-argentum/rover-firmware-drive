@@ -1,57 +1,113 @@
 #include <Arduino.h>
-
 #include <Janus.h>
 
-Hardware::PWMMotor left_wheel_motor(2, 3, 4);
-Driver::ESCON50Driver left_wheel_driver(&left_wheel_motor, 0.1, 0.9, 12);
+PWMConfig pwm_config;
 
-Hardware::PWMMotor right_wheel_motor(5, 6, 7);
-Driver::ESCON50Driver right_wheel_driver(&right_wheel_motor, 0.1, 0.9, 12, );
+// 0 - 5000 rpm <=> 10% - 90% pwm duty cycle
+Escon50Config escon_config(0.0f, 5000.0f, 0.1f, 0.9f);
 
-unsigned int steering_tick_rate = 20; // 20ms -> 50Hz, should be plenty
-Hardware::OpenCRSerialDynamixel steering_dxls(&Serial1, 1000000);
+constexpr unsigned int left_esc_dir = 3;
+constexpr unsigned int left_esc_enable = 2;
+constexpr unsigned int left_esc_pwm = 4;
+
+constexpr unsigned int right_esc_dir = 6;
+constexpr unsigned int right_esc_enable = 5;
+constexpr unsigned int right_esc_pwm = 7;
+
+EsconPWMMotor left_motor(left_esc_dir, left_esc_enable, left_esc_pwm, &escon_config, &pwm_config);
+EsconPWMMotor right_motor(right_esc_dir, right_esc_enable, right_esc_pwm, &escon_config, &pwm_config);
+
+OpenCRDynamixelBridge opencr_brigde(&Serial1, 1000000);
+OpenCRDynamixelMotor steering_left(0, 7000.0f, 140000.0f, &opencr_brigde);
+OpenCRDynamixelMotor steering_right(1, 7000.0f, 140000.0f, &opencr_brigde);
+
+bool armed = true;
+float control_axis_1;
+float control_axis_2;
+byte crc = 0;
+
+const float dxl_turn_angle = 13.0f * 1.0f;
+const float dxl_angle_low = -dxl_turn_angle * (M_PI / 180.0f);
+const float dxl_angle_high = dxl_turn_angle * (M_PI / 180.0f);
 
 void setup() {
-  Serial.begin(115200);
+    Serial.begin(115200);
+    pwm_config.set_resolution(12);
+    
+    left_motor.init();
+    left_motor.set_enable(true);
 
-  Hardware::init();
-  Hardware::set_pwm_depth(12); // 12-bit pwm for extra s m o o t h n e s s :)
+    right_motor.init();
+    right_motor.set_enable(true);
 
-  left_wheel_driver.init();
-  left_wheel_motor.arm();
+    opencr_brigde.init();
+    steering_left.init();
+    steering_right.init();
 
-  right_wheel_driver.init();
-  right_wheel_motor.arm();
-
-  steering_dxls.init();
-  steering_dxls.arm();
-
-  steering_dxls.motor_1.radians = 3.14;
-  steering_dxls.motor_2.radians = 0;
-  steering_dxls.motor_1.velocity = 3000.0f;
-  steering_dxls.motor_2.velocity = 3000.0f;
-  steering_dxls.motor_1.acceleration = 75000.0f;
-  steering_dxls.motor_2.acceleration = 75000.0f;
+    steering_left.set_position(0);
+    steering_right.set_position(M_PI);
+    opencr_brigde.send_arm(true);
 }
 
 void loop() {
-  unsigned long t = millis();
-  static unsigned long steering_last_tick;
+    unsigned long t = millis();
 
-  right_wheel_driver.set_speed(1.0);
+    static unsigned long last_throttle_control;
+    static unsigned long last_dxl_control;
+    static unsigned long last_dxl_arm;
 
-  steering_dxls.update();
+    if(Serial.available() > 0) {
+      bool arm;
+      float axis_1;
+      float axis_2;
 
-  if (t - steering_last_tick >= steering_tick_rate) {
-    steering_last_tick = t;
+      //Serial.readBytes((char*)&c, sizeof(c));
+      Serial.readBytes((char*)&arm, sizeof(arm));
+      Serial.readBytes((char*)&axis_1, sizeof(axis_1));
+      Serial.readBytes((char*)&axis_2, sizeof(axis_2));  
+      
+      control_axis_1 = max(min(axis_1, 1.0f), -1.0f);
+      control_axis_2 = max(min(axis_2, 1.0f), -1.0f);
+    }
 
-    //steering_dxls.motor_1.radians = (t / 3000) % 6;
-    steering_dxls.transmit_motor_state();
+    opencr_brigde.update();
+    left_motor.set_enable(true);
+    right_motor.set_enable(true);
 
-    /*dxl.motor_1.radians = min(M_TWOPI, max(0, (dxl.motor_1.radians + (random(100) / 100.0f) - 0.5f)));
-    dxl.motor_1.velocity = 3000.0f;
-    dxl.motor_1.acceleration = 75000.0f;
-    dxl.transmit_motor_state();
-    Serial.println(dxl.motor_1.radians);*/
-  }
+    // ~100Hz motor control.
+    if (t - last_throttle_control >= 10) {
+      last_throttle_control = t;
+      left_motor.set_rpm(-control_axis_2 * escon_config.max_rpm());
+      right_motor.set_rpm(control_axis_2 * escon_config.max_rpm());
+    }
+
+    //TODO: only send this if the armed status has actually changed
+    if (t - last_dxl_arm >= 500) {
+      last_dxl_arm = t;
+      Serial.print("CRC: "); Serial.println(crc);
+      Serial.print("Stick axis 1: "); Serial.println(control_axis_1);
+      Serial.print("Stick axis 2: "); Serial.println(control_axis_2);
+      Serial.print("Left motor RPM target: "); Serial.println(left_motor.get_rpm());
+      Serial.print("Right motor RPM target: "); Serial.println(right_motor.get_rpm());
+      Serial.print("Left steer angle target: "); Serial.println(steering_left.get_position() * (180.0f / M_PI));
+      Serial.print("Right steer angle target: "); Serial.println(steering_right.get_position() * (180.0f / M_PI));      
+    }
+
+    // ~33Hz steering, should be higher.
+    //TODO: increase OpenCR efficiency
+    if (t - last_dxl_control >= 30) {
+        last_dxl_control = t;
+        
+        float steering_angle = dxl_angle_low + ((control_axis_1 + 1) / 2) * (dxl_angle_high - dxl_angle_low);
+        steering_left.set_position(M_PI + steering_angle);
+        steering_right.set_position(M_PI - steering_angle);
+        
+        steering_left.update_bridge();
+        steering_right.update_bridge();
+        opencr_brigde.send_motors();
+    }
+
+    //unsigned long elapsed = micros() - start_t;
+    //Serial.print("Loop time: "); Serial.println(elapsed);
+    //Serial.print("Load%: "); Serial.println(100.0f * (elapsed / 1000.0f) / 10.0f);
 }
