@@ -54,14 +54,6 @@ void setup() {
   Comm::init();
 }
 
-struct control_packet {
-  float axis_1;
-  float axis_2;
-  float axis_3;
-  float axis_4;
-  unsigned int v;
-};
-
 void loop() {
   //unsigned long time = millis();
   //static unsigned long last_s;

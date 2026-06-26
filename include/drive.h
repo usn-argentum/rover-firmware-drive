@@ -1,8 +1,8 @@
 #pragma once
-
+  
 #include <Janus.h>
 
-const float dxl_turn_angle = 13.0f * 2.0f;
+const float dxl_turn_angle = 13.0f * 1.0f;
 const float dxl_angle_low = -dxl_turn_angle * (M_PI / 180.0f);
 const float dxl_angle_high = dxl_turn_angle * (M_PI / 180.0f);
 
@@ -74,7 +74,7 @@ namespace Drive {
       left_motor.set_enable(true);
       steering_left.set_position(M_PI + left_steering_angle);
       right_motor.set_enable(true);
-      steering_right.set_position(M_PI + right_steering_angle);
+      steering_right.set_position(M_PI - right_steering_angle);
           
       steering_left.update_bridge();
       steering_right.update_bridge();
